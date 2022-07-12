@@ -596,7 +596,9 @@ class Upgrader {
           ));
     }
     return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(title),
+      contentPadding: const EdgeInsets.all(16),
       content: SingleChildScrollView(
           child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -599,6 +599,8 @@ class Upgrader {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(title),
       contentPadding: const EdgeInsets.all(16),
+      titlePadding: const EdgeInsets.all(16),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       content: SingleChildScrollView(
           child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

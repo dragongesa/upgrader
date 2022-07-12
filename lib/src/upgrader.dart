@@ -598,9 +598,9 @@ class Upgrader {
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(title),
-      contentPadding: const EdgeInsets.all(16),
-      titlePadding: const EdgeInsets.all(16),
-      actionsPadding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      contentPadding: const EdgeInsets.all(24),
+      titlePadding: const EdgeInsets.all(24),
+      actionsPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       content: SingleChildScrollView(
           child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

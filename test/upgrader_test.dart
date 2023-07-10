@@ -1,20 +1,23 @@
 /*
- * Copyright (c) 2018-2022 Larry Aasen. All rights reserved.
+ * Copyright (c) 2018-2023 Larry Aasen. All rights reserved.
  */
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/src/client.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:upgrader/src/upgrader_device.dart';
 import 'package:upgrader/upgrader.dart';
 
+import 'appcast_test.dart';
 import 'fake_appcast.dart';
 import 'mock_itunes_client.dart';
 import 'mock_play_store_client.dart';
 
-// Platform.operatingSystem can be "macos" or "linux" in a unit test.
-// defaultTargetPlatform is TargetPlatform.android in a unit test.
+// FYI: Platform.operatingSystem can be "macos" or "linux" in a unit test.
+// FYI: defaultTargetPlatform is TargetPlatform.android in a unit test.
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -30,7 +33,8 @@ void main() {
     return true;
   });
 
-  testWidgets('test Upgrader sharedInstance', (WidgetTester tester) async {
+  testWidgets('test Upgrader sharedInstance always returns same instance',
+      (WidgetTester tester) async {
     final upgrader1 = Upgrader.sharedInstance;
     expect(upgrader1, isNotNull);
     final upgrader2 = Upgrader.sharedInstance;
@@ -38,36 +42,81 @@ void main() {
     expect(upgrader1 == upgrader2, isTrue);
   }, skip: false);
 
+  testWidgets('test Upgrader multiple instances', (WidgetTester tester) async {
+    await tester.runAsync(() async {
+      final packageInfo = PackageInfo(
+          appName: 'Upgrader',
+          packageName: 'com.larryaasen.upgrader',
+          version: '1.9.9',
+          buildNumber: '400');
+
+      final client = MockITunesSearchClient.setupMockClient();
+      final upgrader = Upgrader(
+          upgraderOS: MockUpgraderOS(ios: true),
+          client: client,
+          debugLogging: true);
+
+      expect(tester.takeException(), null);
+      await tester.pumpAndSettle();
+      try {
+        expect(upgrader.appName(), 'Upgrader');
+      } catch (e) {
+        expect(e, upgrader.notInitializedExceptionMessage);
+      }
+
+      upgrader.installPackageInfo(packageInfo: packageInfo);
+      expect(await upgrader.initialize(), isTrue);
+
+      final upgrader1 = Upgrader(
+          upgraderOS: MockUpgraderOS(ios: true),
+          client: client,
+          debugLogging: true);
+      upgrader1.installPackageInfo(packageInfo: packageInfo);
+      expect(await upgrader1.initialize(), isTrue);
+    });
+  });
+
+  testWidgets('test Upgrader clearSavedSettings', (WidgetTester tester) async {
+    await Upgrader.clearSavedSettings();
+  }, skip: false);
+
   testWidgets('test Upgrader class', (WidgetTester tester) async {
-    final client = MockITunesSearchClient.setupMockClient();
-    final upgrader = Upgrader(platform: TargetPlatform.iOS, client: client);
+    await tester.runAsync(() async {
+      // test code here
+      final client = MockITunesSearchClient.setupMockClient();
+      final upgrader = Upgrader(
+          upgraderOS: MockUpgraderOS(ios: true),
+          client: client,
+          debugLogging: true);
 
-    expect(tester.takeException(), null);
-    await tester.pumpAndSettle();
-    try {
+      expect(tester.takeException(), null);
+      await tester.pumpAndSettle();
+      try {
+        expect(upgrader.appName(), 'Upgrader');
+      } catch (e) {
+        expect(e, upgrader.notInitializedExceptionMessage);
+      }
+
+      upgrader.installPackageInfo(
+          packageInfo: PackageInfo(
+              appName: 'Upgrader',
+              packageName: 'com.larryaasen.upgrader',
+              version: '1.9.9',
+              buildNumber: '400'));
+
+      expect(await upgrader.initialize(), isTrue);
+
+      // Calling initialize() a second time should do nothing
+      expect(await upgrader.initialize(), isTrue);
+
       expect(upgrader.appName(), 'Upgrader');
-    } catch (e) {
-      expect(e, upgrader.notInitializedExceptionMessage);
-    }
+      expect(upgrader.currentAppStoreVersion(), '5.6');
+      expect(upgrader.currentInstalledVersion(), '1.9.9');
+      expect(upgrader.isUpdateAvailable(), true);
 
-    upgrader.installPackageInfo(
-        packageInfo: PackageInfo(
-            appName: 'Upgrader',
-            packageName: 'com.larryaasen.upgrader',
-            version: '1.9.9',
-            buildNumber: '400'));
-    await upgrader.initialize();
-
-    // Calling initialize() a second time should do nothing
-    await upgrader.initialize();
-
-    expect(upgrader.appName(), 'Upgrader');
-    expect(upgrader.currentAppStoreVersion(), '5.6');
-    expect(upgrader.currentInstalledVersion(), '1.9.9');
-    expect(upgrader.isUpdateAvailable(), true);
-
-    upgrader.installAppStoreVersion('1.2.3');
-    expect(upgrader.currentAppStoreVersion(), '1.2.3');
+      upgrader.installAppStoreVersion('1.2.3');
+      expect(upgrader.currentAppStoreVersion(), '1.2.3');
+    });
   }, skip: false);
 
   testWidgets('test installAppStoreListingURL', (WidgetTester tester) async {
@@ -82,7 +131,9 @@ void main() {
   testWidgets('test UpgradeWidget', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
     final upgrader = Upgrader(
-        platform: TargetPlatform.iOS, client: client, debugLogging: true);
+        upgraderOS: MockUpgraderOS(ios: true),
+        client: client,
+        debugLogging: true);
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -90,7 +141,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '0.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     var called = false;
     var notCalled = true;
@@ -124,7 +176,10 @@ void main() {
     expect(upgrader.messages.buttonTitleUpdate, 'ccc');
     expect(upgrader.messages.releaseNotes, 'ddd');
 
-    await tester.pumpWidget(_MyWidget(upgrader: upgrader));
+    // await tester.runAsync(() async {
+    final GlobalKey globalKey = GlobalKey();
+    final myWidget = _MyWidget(key: globalKey, upgrader: upgrader);
+    await tester.pumpWidget(myWidget);
 
     expect(find.text('Upgrader test'), findsOneWidget);
     expect(find.text('Upgrading'), findsOneWidget);
@@ -154,12 +209,22 @@ void main() {
     expect(find.text(upgrader.messages.releaseNotes), findsNothing);
     expect(called, true);
     expect(notCalled, true);
+    // });
   }, skip: false);
 
   testWidgets('test UpgradeWidget Cupertino', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
+
+    const cupertinoButtonTextStyle = TextStyle(
+      fontSize: 14,
+      color: Colors.green,
+    );
     final upgrader = Upgrader(
-        platform: TargetPlatform.iOS, client: client, debugLogging: true);
+      upgraderOS: MockUpgraderOS(ios: true),
+      client: client,
+      debugLogging: true,
+      cupertinoButtonTextStyle: cupertinoButtonTextStyle,
+    );
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -167,7 +232,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '0.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     var called = false;
     var notCalled = true;
@@ -217,6 +283,12 @@ void main() {
     expect(find.text(upgrader.releaseNotes!), findsOneWidget);
     expect(find.text(upgrader.messages.prompt), findsOneWidget);
     expect(find.byType(CupertinoDialogAction), findsNWidgets(3));
+    expect(
+      find.byWidgetPredicate((widget) =>
+          widget is CupertinoDialogAction &&
+          widget.textStyle == cupertinoButtonTextStyle),
+      findsNWidgets(3),
+    );
     expect(find.text(upgrader.messages.buttonTitleIgnore), findsOneWidget);
     expect(find.text(upgrader.messages.buttonTitleLater), findsOneWidget);
     expect(find.text(upgrader.messages.buttonTitleUpdate), findsOneWidget);
@@ -229,9 +301,11 @@ void main() {
     expect(called, true);
     expect(notCalled, true);
   }, skip: false);
+
   testWidgets('test UpgradeWidget ignore', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
-    final upgrader = Upgrader(platform: TargetPlatform.iOS, client: client);
+    final upgrader =
+        Upgrader(upgraderOS: MockUpgraderOS(ios: true), client: client);
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -239,7 +313,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '0.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     var called = false;
     var notCalled = true;
@@ -273,7 +348,8 @@ void main() {
 
   testWidgets('test UpgradeWidget later', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
-    final upgrader = Upgrader(platform: TargetPlatform.iOS, client: client);
+    final upgrader =
+        Upgrader(upgraderOS: MockUpgraderOS(ios: true), client: client);
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -281,7 +357,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '0.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     var called = false;
     var notCalled = true;
@@ -315,7 +392,8 @@ void main() {
 
   testWidgets('test UpgradeWidget pop scope', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
-    final upgrader = Upgrader(platform: TargetPlatform.iOS, client: client);
+    final upgrader =
+        Upgrader(upgraderOS: MockUpgraderOS(ios: true), client: client);
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -323,7 +401,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '0.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     var called = false;
     upgrader.shouldPopScope = () {
@@ -349,7 +428,9 @@ void main() {
   testWidgets('test UpgradeWidget Card upgrade', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
     final upgrader = Upgrader(
-        platform: TargetPlatform.iOS, client: client, debugLogging: true);
+        upgraderOS: MockUpgraderOS(ios: true),
+        client: client,
+        debugLogging: true);
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -357,7 +438,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '0.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     expect(upgrader.messages, isNotNull);
 
@@ -396,7 +478,9 @@ void main() {
   testWidgets('test UpgradeWidget Card ignore', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
     final upgrader = Upgrader(
-        platform: TargetPlatform.iOS, client: client, debugLogging: true);
+        upgraderOS: MockUpgraderOS(ios: true),
+        client: client,
+        debugLogging: true);
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -404,7 +488,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '0.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     var called = false;
     var notCalled = true;
@@ -439,7 +524,9 @@ void main() {
   testWidgets('test UpgradeWidget Card later', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
     final upgrader = Upgrader(
-        platform: TargetPlatform.iOS, client: client, debugLogging: true);
+        upgraderOS: MockUpgraderOS(ios: true),
+        client: client,
+        debugLogging: true);
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -447,7 +534,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '0.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     var called = false;
     var notCalled = true;
@@ -482,7 +570,9 @@ void main() {
   testWidgets('test upgrader minAppVersion', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
     final upgrader = Upgrader(
-        platform: TargetPlatform.iOS, client: client, debugLogging: true);
+        upgraderOS: MockUpgraderOS(ios: true),
+        client: client,
+        debugLogging: true);
     upgrader.minAppVersion = '1.0.0';
 
     upgrader.installPackageInfo(
@@ -491,7 +581,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '0.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     expect(upgrader.isTooSoon(), false);
     upgrader.minAppVersion = '0.5.0';
@@ -525,7 +616,9 @@ void main() {
       (WidgetTester tester) async {
     final client = await MockPlayStoreSearchClient.setupMockClient();
     final upgrader = Upgrader(
-        platform: TargetPlatform.android, client: client, debugLogging: true);
+        upgraderOS: MockUpgraderOS(android: true),
+        client: client,
+        debugLogging: true);
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -533,7 +626,8 @@ void main() {
             packageName: 'com.testing.test2',
             version: '2.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     expect(upgrader.belowMinAppVersion(), true);
     expect(upgrader.minAppVersion, '4.5.6');
@@ -545,7 +639,9 @@ void main() {
       description: 'Use this app. [:mav: 4.5.6]',
     );
     final upgrader = Upgrader(
-        platform: TargetPlatform.iOS, client: client, debugLogging: true);
+        upgraderOS: MockUpgraderOS(ios: true),
+        client: client,
+        debugLogging: true);
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -553,7 +649,8 @@ void main() {
             packageName: 'com.larryaasen.upgrader',
             version: '2.9.9',
             buildNumber: '400'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     expect(upgrader.belowMinAppVersion(), true);
     expect(upgrader.minAppVersion, '4.5.6');
@@ -562,10 +659,11 @@ void main() {
   testWidgets('test UpgradeWidget unknown app', (WidgetTester tester) async {
     final client = MockITunesSearchClient.setupMockClient();
     final upgrader = Upgrader(
-        platform: TargetPlatform.iOS,
+        upgraderOS: MockUpgraderOS(ios: true),
         client: client,
         debugLogging: true,
-        countryCode: 'IT');
+        countryCode: 'IT',
+        languageCode: 'en');
 
     upgrader.installPackageInfo(
         packageInfo: PackageInfo(
@@ -573,7 +671,8 @@ void main() {
             packageName: 'com.google.MyApp',
             version: '0.1.0',
             buildNumber: '1'));
-    await upgrader.initialize();
+    upgrader.initialize().then((value) {});
+    await tester.pumpAndSettle();
 
     var called = false;
     var notCalled = true;
@@ -609,7 +708,7 @@ void main() {
       final fakeAppcast = FakeAppcast();
       final client = MockITunesSearchClient.setupMockClient();
       final upgrader = Upgrader(
-          platform: TargetPlatform.iOS,
+          upgraderOS: MockUpgraderOS(os: 'ios', ios: true),
           client: client,
           debugLogging: true,
           appcastConfig: fakeAppcast.config,
@@ -626,6 +725,99 @@ void main() {
       await upgrader.initialize();
 
       expect(fakeAppcast.callCount, greaterThan(0));
+    }, skip: false);
+
+    test('will use appcast critical version if exists', () async {
+      final upgraderOS = MockUpgraderOS(android: true);
+      final Client mockClient =
+          setupMockClient(filePath: 'test/testappcast_critical.xml');
+      final appcast = Appcast(
+          client: mockClient,
+          upgraderOS: upgraderOS,
+          upgraderDevice: MockUpgraderDevice());
+
+      final upgrader = Upgrader(
+        upgraderOS: upgraderOS,
+        debugLogging: true,
+        appcastConfig: AppcastConfiguration(
+          url: 'https://sparkle-project.org/test/testappcast.xml',
+        ),
+        appcast: appcast,
+      )..installPackageInfo(
+          packageInfo: PackageInfo(
+            appName: 'Upgrader',
+            packageName: 'com.larryaasen.upgrader',
+            version: '1.9.6',
+            buildNumber: '42',
+          ),
+        );
+
+      await upgrader.initialize();
+
+      var notCalled = true;
+      upgrader.willDisplayUpgrade = (
+          {required bool display,
+          String? minAppVersion,
+          String? installedVersion,
+          String? appStoreVersion}) {
+        expect(display, true);
+        expect(installedVersion, '1.9.6');
+
+        /// Appcast Test critical version.
+        expect(appStoreVersion, '3.0.0');
+        notCalled = false;
+      };
+
+      final shouldDisplayUpgrade = upgrader.shouldDisplayUpgrade();
+
+      expect(shouldDisplayUpgrade, isTrue);
+      expect(notCalled, false);
+    }, skip: false);
+
+    test('will use appcast last item', () async {
+      final upgraderOS = MockUpgraderOS(ios: true);
+
+      final Client mockClient =
+          setupMockClient(filePath: 'test/testappcastmulti.xml');
+      final appcast = Appcast(
+          client: mockClient,
+          upgraderOS: upgraderOS,
+          upgraderDevice: MockUpgraderDevice());
+
+      final upgrader = Upgrader(
+        upgraderOS: upgraderOS,
+        debugLogging: true,
+        appcastConfig: AppcastConfiguration(
+          url: 'https://sparkle-project.org/test/testappcast.xml',
+        ),
+        appcast: appcast,
+      )..installPackageInfo(
+          packageInfo: PackageInfo(
+            appName: 'Upgrader',
+            packageName: 'com.larryaasen.upgrader',
+            version: '1.9.6',
+            buildNumber: '42',
+          ),
+        );
+
+      await upgrader.initialize();
+
+      var notCalled = true;
+      upgrader.willDisplayUpgrade = (
+          {required bool display,
+          String? minAppVersion,
+          String? installedVersion,
+          String? appStoreVersion}) {
+        expect(display, true);
+        expect(installedVersion, '1.9.6');
+        expect(appStoreVersion, '2.3.2');
+        notCalled = false;
+      };
+
+      final shouldDisplayUpgrade = upgrader.shouldDisplayUpgrade();
+
+      expect(shouldDisplayUpgrade, isTrue);
+      expect(notCalled, false);
     }, skip: false);
 
     test('durationUntilAlertAgain defaults to 3 days', () async {
@@ -653,7 +845,7 @@ void main() {
 
       final upgrader2 =
           Upgrader(durationUntilAlertAgain: const Duration(days: 10));
-      final _ = UpgradeCard(upgrader: upgrader2);
+      UpgradeCard(upgrader: upgrader2);
       expect(upgrader2.durationUntilAlertAgain, const Duration(days: 10));
     }, skip: false);
 
@@ -674,7 +866,9 @@ void main() {
     test('should respect debugDisplayAlways property', () {
       final client = MockITunesSearchClient.setupMockClient();
       final upgrader = Upgrader(
-          platform: TargetPlatform.iOS, client: client, debugLogging: true);
+          upgraderOS: MockUpgraderOS(ios: true),
+          client: client,
+          debugLogging: true);
 
       expect(upgrader.shouldDisplayUpgrade(), false);
       upgrader.debugDisplayAlways = true;
@@ -718,7 +912,7 @@ void main() {
     test('should return true when version is below minAppVersion', () async {
       final upgrader = Upgrader(
           debugLogging: true,
-          platform: TargetPlatform.iOS,
+          upgraderOS: MockUpgraderOS(ios: true),
           client: MockITunesSearchClient.setupMockClient())
         ..minAppVersion = '2.0.0'
         ..installPackageInfo(
@@ -754,7 +948,7 @@ void main() {
     test('should return true when bestItem has critical update', () async {
       final upgrader = Upgrader(
           debugLogging: true,
-          platform: TargetPlatform.iOS,
+          upgraderOS: MockUpgraderOS(ios: true),
           client: MockITunesSearchClient.setupMockClient())
         ..installPackageInfo(
           packageInfo: PackageInfo(
@@ -775,7 +969,7 @@ void main() {
     test('packageInfo is empty', () async {
       final upgrader = Upgrader(
           client: MockITunesSearchClient.setupMockClient(),
-          platform: TargetPlatform.iOS,
+          upgraderOS: MockUpgraderOS(ios: true),
           debugLogging: true)
         ..installPackageInfo(
           packageInfo: PackageInfo(
@@ -797,12 +991,15 @@ void main() {
     verifyMessages(UpgraderMessages(code: 'en'), 'en');
     verifyMessages(UpgraderMessages(code: 'ar'), 'ar');
     verifyMessages(UpgraderMessages(code: 'bn'), 'bn');
+    verifyMessages(UpgraderMessages(code: 'da'), 'da');
     verifyMessages(UpgraderMessages(code: 'es'), 'es');
     verifyMessages(UpgraderMessages(code: 'fa'), 'fa');
     verifyMessages(UpgraderMessages(code: 'fil'), 'fil');
     verifyMessages(UpgraderMessages(code: 'fr'), 'fr');
     verifyMessages(UpgraderMessages(code: 'de'), 'de');
     verifyMessages(UpgraderMessages(code: 'el'), 'el');
+    verifyMessages(UpgraderMessages(code: 'he'), 'he');
+    verifyMessages(UpgraderMessages(code: 'hi'), 'hi');
     verifyMessages(UpgraderMessages(code: 'ht'), 'ht');
     verifyMessages(UpgraderMessages(code: 'hu'), 'hu');
     verifyMessages(UpgraderMessages(code: 'id'), 'id');
@@ -820,27 +1017,28 @@ void main() {
     verifyMessages(UpgraderMessages(code: 'ru'), 'ru');
     verifyMessages(UpgraderMessages(code: 'sv'), 'sv');
     verifyMessages(UpgraderMessages(code: 'ta'), 'ta');
+    verifyMessages(UpgraderMessages(code: 'te'), 'te');
     verifyMessages(UpgraderMessages(code: 'tr'), 'tr');
     verifyMessages(UpgraderMessages(code: 'uk'), 'uk');
     verifyMessages(UpgraderMessages(code: 'vi'), 'vi');
+    verifyMessages(UpgraderMessages(code: 'zh'), 'zh');
   }, skip: false);
 }
 
 void verifyMessages(UpgraderMessages messages, String code) {
   expect(messages.languageCode, code);
-  expect(messages.message(UpgraderMessage.body)!.isNotEmpty, isTrue);
-  expect(
-      messages.message(UpgraderMessage.buttonTitleIgnore)!.isNotEmpty, isTrue);
-  expect(
-      messages.message(UpgraderMessage.buttonTitleLater)!.isNotEmpty, isTrue);
-  expect(
-      messages.message(UpgraderMessage.buttonTitleUpdate)!.isNotEmpty, isTrue);
-  expect(messages.message(UpgraderMessage.prompt)!.isNotEmpty, isTrue);
-  expect(messages.message(UpgraderMessage.title)!.isNotEmpty, isTrue);
+  expect(messages.message(UpgraderMessage.body), isNotEmpty);
+  expect(messages.message(UpgraderMessage.buttonTitleIgnore), isNotEmpty);
+  expect(messages.message(UpgraderMessage.buttonTitleLater), isNotEmpty);
+  expect(messages.message(UpgraderMessage.buttonTitleUpdate), isNotEmpty);
+  expect(messages.message(UpgraderMessage.prompt), isNotEmpty);
+  expect(messages.message(UpgraderMessage.releaseNotes), isNotEmpty);
+  expect(messages.message(UpgraderMessage.title), isNotEmpty);
 }
 
 class _MyWidget extends StatelessWidget {
   final Upgrader upgrader;
+
   const _MyWidget({Key? key, required this.upgrader}) : super(key: key);
 
   @override
@@ -853,8 +1051,8 @@ class _MyWidget extends StatelessWidget {
         ),
         body: UpgradeAlert(
             upgrader: upgrader,
-            child: Column(
-              children: const <Widget>[Text('Upgrading')],
+            child: const Column(
+              children: <Widget>[Text('Upgrading')],
             )),
       ),
     );
@@ -863,6 +1061,7 @@ class _MyWidget extends StatelessWidget {
 
 class _MyWidgetCard extends StatelessWidget {
   final Upgrader upgrader;
+
   const _MyWidgetCard({Key? key, required this.upgrader}) : super(key: key);
 
   @override
@@ -884,10 +1083,13 @@ class _MyWidgetCard extends StatelessWidget {
 class MyUpgraderMessages extends UpgraderMessages {
   @override
   String get buttonTitleIgnore => 'aaa';
+
   @override
   String get buttonTitleLater => 'bbb';
+
   @override
   String get buttonTitleUpdate => 'ccc';
+
   @override
   String get releaseNotes => 'ddd';
 }

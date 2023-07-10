@@ -29,6 +29,7 @@ class ITunesSearchAPI {
   /// ```lookupURLByBundleId('com.google.Maps', country: 'FR');```
   Future<Map?> lookupByBundleId(String bundleId,
       {String? country = 'US', bool useCacheBuster = true}) async {
+    assert(bundleId.isNotEmpty);
     if (bundleId.isEmpty) {
       return null;
     }
@@ -65,10 +66,17 @@ class ITunesSearchAPI {
 
     final url =
         lookupURLById(id, country: country, useCacheBuster: useCacheBuster)!;
-    final response = await client!.get(Uri.parse(url));
-
-    final decodedResults = _decodeResults(response.body);
-    return decodedResults;
+    if (debugEnabled) {
+      print('upgrader: download: $url');
+    }
+    try {
+      final response = await client!.get(Uri.parse(url));
+      final decodedResults = _decodeResults(response.body);
+      return decodedResults;
+    } catch (e) {
+      print('upgrader: lookupById exception: $e');
+      return null;
+    }
   }
 
   /// Look up URL by bundle id.
